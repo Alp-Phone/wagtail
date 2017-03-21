@@ -262,8 +262,19 @@ class WagtailAdminModelFormMetaclass(ClusterFormMetaclass):
     extra_form_count = 0
 
     def __new__(cls, name, bases, attrs):
+
+        # wrap formfield_for_dbfield in a local scope and add the `disabled` kwarg when the field is marked as readonly
+        def wrapped_formfield_for_dbfield(db_field, **kwargs):
+            readonly_fields = getattr(wrapped_formfield_for_dbfield, 'readonly_fields', None)
+            if readonly_fields and db_field.name in readonly_fields:
+                kwargs['disabled'] = True
+            return formfield_for_dbfield(db_field, **kwargs)
+
+        if 'Meta' in attrs:
+            wrapped_formfield_for_dbfield.readonly_fields = getattr(attrs['Meta'], 'readonly_fields', None)
+
         if 'formfield_callback' not in attrs or attrs['formfield_callback'] is None:
-            attrs['formfield_callback'] = formfield_for_dbfield
+            attrs['formfield_callback'] = wrapped_formfield_for_dbfield
 
         new_class = super(WagtailAdminModelFormMetaclass, cls).__new__(cls, name, bases, attrs)
         return new_class

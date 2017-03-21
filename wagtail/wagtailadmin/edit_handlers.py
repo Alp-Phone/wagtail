@@ -35,7 +35,7 @@ def widget_with_script(widget, script):
 
 def get_form_for_model(
     model, form_class=WagtailAdminModelForm,
-    fields=None, exclude=None, formsets=None, exclude_formsets=None, widgets=None
+    fields=None, exclude=None, formsets=None, exclude_formsets=None, widgets=None, readonly_fields=None
 ):
 
     # django's modelform_factory with a bit of custom behaviour
@@ -50,6 +50,8 @@ def get_form_for_model(
         attrs['formsets'] = formsets
     if exclude_formsets is not None:
         attrs['exclude_formsets'] = exclude_formsets
+    if readonly_fields is not None:
+        attrs['readonly_fields'] = readonly_fields
 
     # Give this new form class a reasonable name.
     class_name = model.__name__ + str('Form')
@@ -104,6 +106,11 @@ class EditHandler(object):
     # return list of fields that this EditHandler expects to find on the form
     @classmethod
     def required_fields(cls):
+        return []
+
+    # return list of fields that are disabled on the form
+    @classmethod
+    def readonly_fields(cls):
         return []
 
     # return a dict of formsets that this EditHandler requires to be present
@@ -238,6 +245,18 @@ class BaseCompositeEditHandler(EditHandler):
 
         return cls._required_fields
 
+    _readonly_fields = None
+
+    @classmethod
+    def readonly_fields(cls):
+        if cls._readonly_fields is None:
+            fields = []
+            for handler_class in cls.children:
+                fields.extend(handler_class.readonly_fields())
+            cls._readonly_fields = fields
+
+        return cls._readonly_fields
+
     _required_formsets = None
 
     @classmethod
@@ -315,7 +334,8 @@ class BaseFormEditHandler(BaseCompositeEditHandler):
                 form_class=base_form_class,
                 fields=cls.required_fields(),
                 formsets=cls.required_formsets(),
-                widgets=cls.widget_overrides())
+                widgets=cls.widget_overrides(),
+                readonly_fields=cls.readonly_fields())
         return cls._form_class
 
 
@@ -468,6 +488,13 @@ class BaseFieldPanel(EditHandler):
         return [cls.field_name]
 
     @classmethod
+    def readonly_fields(cls):
+        if hasattr(cls, 'readonly') and cls.readonly:
+            return [cls.field_name]
+        else:
+            return []
+
+    @classmethod
     def get_comparison_class(cls):
         # Hide fields with hidden widget
         widget_override = cls.widget_overrides().get(cls.field_name, None)
@@ -507,16 +534,18 @@ class BaseFieldPanel(EditHandler):
 
 
 class FieldPanel(object):
-    def __init__(self, field_name, classname="", widget=None):
+    def __init__(self, field_name, classname="", widget=None, readonly=False):
         self.field_name = field_name
         self.classname = classname
         self.widget = widget
+        self.readonly = readonly
 
     def bind_to_model(self, model):
         base = {
             'model': model,
             'field_name': self.field_name,
             'classname': self.classname,
+            'readonly': self.readonly,
         }
 
         if self.widget:
